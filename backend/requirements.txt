@@ -12,4 +12,5 @@ redis
 pandas
 python-multipart
 openpyxl
-
+bcrypt
+dotenv

@@ -15,6 +15,9 @@ from dependencies import get_current_user, get_db
 from limiter import limiter
 from services.url_service import create_short_url_logic, detect_client_platform
 
+MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
+
+
 router = APIRouter()
 
 
@@ -40,6 +43,7 @@ def shorten_url(
 
 
 @router.get("/api/my-urls", response_model=list[schemas.URLResponse])
+@limiter.limit("10/minute")
 def list_all_url(
     request: Request,
     db: Session = Depends(get_db),
@@ -66,6 +70,7 @@ def list_all_url(
 
 
 @router.delete("/api/delete-url/{id}")
+@limiter.limit("10/minute")
 def delete_url(
     id: int,
     db: Session = Depends(get_db),
@@ -88,6 +93,7 @@ def delete_url(
 
 
 @router.patch("/api/validate-url/{id}")
+@limiter.limit("10/minute")
 def validate_url(
     id: int,
     payload: schemas.URLValidationUpdate,
@@ -123,6 +129,16 @@ def bulk_upload(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
+    file.file.seek(0, io.SEEK_END)
+    file_size = file.file.tell()
+    file.file.seek(0)
+
+    if file_size > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum allowed size is {MAX_UPLOAD_SIZE // (1024 * 1024)} MB."
+        )
+
     contents = file.file.read()
     filename = (file.filename or "").lower()
 
@@ -181,6 +197,7 @@ def bulk_upload(
 
 
 @router.post("/api/protected/{short_code}", response_model=schemas.URLAccessResponse)
+@limiter.limit("4/minute")
 def verify_password(
     short_code: str,
     payload: schemas.URLPasswordRequest,
@@ -241,6 +258,7 @@ def verify_password(
 # in main.py) since "/{short_code}" matches any single path segment — it
 # must never get a chance to shadow a more specific route.
 @router.get("/{short_code}")
+@limiter.limit("5/minute")
 def redirect_url(request: Request, short_code: str, db: Session = Depends(get_db)):
     url_entry = db.query(models.URL).filter(models.URL.short_url == short_code).first()
 
