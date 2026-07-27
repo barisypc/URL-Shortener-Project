@@ -84,21 +84,32 @@ def list_all_users(
     db: Session = Depends(get_db),
     current_admin: models.User = Depends(get_current_admin)
 ):
-    users = db.query(models.User).all()
-    result = []
-    for user in users:
-        url_count = db.query(func.count(models.URL.id)).filter(models.URL.user_id == user.id).scalar()
-        total_clicks = db.query(func.coalesce(func.sum(models.URL.clicks), 0)).filter(models.URL.user_id == user.id).scalar()
-        result.append({
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "is_active": user.is_active,
-            "is_admin": user.is_admin,
-            "url_count": url_count,
-            "total_clicks": total_clicks,
-        })
-    return result
+    rows = (
+        db.query(
+            models.User.id,
+            models.User.username,
+            models.User.email,
+            models.User.is_active,
+            models.User.is_admin,
+            func.count(models.URL.id).label("url_count"),
+            func.coalesce(func.sum(models.URL.clicks), 0).label("total_clicks"),
+        )
+        .outerjoin(models.URL, models.URL.user_id == models.User.id)
+        .group_by(models.User.id)
+        .all()
+    )
+
+    return [
+        {
+            "id": row.id,
+            "username": row.username,
+            "email": row.email,
+            "is_active": row.is_active,
+            "is_admin": row.is_admin,
+            "url_count": row.url_count,
+            "total_clicks": row.total_clicks,
+        }
+        for row in rows]
 
 
 @router.get("/api/admin/user-urls/{user_id}", response_model=list[schemas.URLResponse])

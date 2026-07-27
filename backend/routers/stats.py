@@ -1,3 +1,4 @@
+from collections import Counter
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -25,33 +26,36 @@ def show_statistics(
     if not url_entry:
         raise HTTPException(status_code=404, detail="URL not found")
 
-    platform_stats = (
-        db.query(models.URLClick.accessed_platform, func.count(models.URLClick.id))
+    # Tek GROUP BY: platform, browser, country kombinasyonuna göre gruplanmış sayımlar
+    grouped_stats = (
+        db.query(
+            models.URLClick.accessed_platform,
+            models.URLClick.accessed_browser,
+            models.URLClick.accessed_country,
+            func.count(models.URLClick.id).label("count"),
+        )
         .filter(models.URLClick.url_id == id)
-        .group_by(models.URLClick.accessed_platform)
+        .group_by(
+            models.URLClick.accessed_platform,
+            models.URLClick.accessed_browser,
+            models.URLClick.accessed_country,
+        )
         .all()
     )
 
-    browser_stats = (
-        db.query(models.URLClick.accessed_browser, func.count(models.URLClick.id))
-        .filter(models.URLClick.url_id == id)
-        .group_by(models.URLClick.accessed_browser)
-        .all()
-    )
+    platform_counter = Counter()
+    browser_counter = Counter()
+    country_counter = Counter()
+    total_clicks = 0
 
-    country_stats = (
-        db.query(models.URLClick.accessed_country, func.count(models.URLClick.id))
-        .filter(models.URLClick.url_id == id)
-        .group_by(models.URLClick.accessed_country)
-        .all()
-    )
+    for platform, browser, country, count in grouped_stats:
+        platform_counter[platform or "Unknown"] += count
+        browser_counter[browser or "Unknown"] += count
+        country_counter[country or "Unknown"] += count
+        total_clicks += count
 
-    total_clicks = (
-        db.query(func.count(models.URLClick.id))
-        .filter(models.URLClick.url_id == id)
-        .scalar()
-    )
-
+    # recent_clicks tekil zaman damgası gerektirdiği için ayrı bir sorgu şart —
+    # gruplanmış veriden geri türetilemez.
     recent_clicks = (
         db.query(models.URLClick.clicked_at)
         .filter(models.URLClick.url_id == id)
@@ -65,31 +69,16 @@ def show_statistics(
         "original_url": url_entry.original_url,
         "total_clicks": total_clicks,
         "by_platform": [
-            {
-                "label": platform if platform is not None else "Unknown",
-                "count": count
-            }
-            for platform, count in platform_stats
+            {"label": label, "count": count} for label, count in platform_counter.items()
         ],
         "by_browser": [
-            {
-                "label": browser if browser is not None else "Unknown",
-                "count": count
-            }
-            for browser, count in browser_stats
+            {"label": label, "count": count} for label, count in browser_counter.items()
         ],
         "by_country": [
-            {
-                "label": country if country is not None else "Unknown",
-                "count": count
-            }
-            for country, count in country_stats
+            {"label": label, "count": count} for label, count in country_counter.items()
         ],
         "recent_clicks": [
-            {
-                "timestamp": clicked_at.isoformat(),
-                "count": 1
-            }
+            {"timestamp": clicked_at.isoformat(), "count": 1}
             for (clicked_at,) in recent_clicks
         ]
     }
