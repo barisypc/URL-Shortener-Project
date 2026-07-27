@@ -226,3 +226,18 @@ class AdminAbuseReportItem(BaseModel):
     reporter_email: Optional[str] = None
     owner_email: Optional[str] = None
     url_is_active: bool
+
+
+class AuditLogItem(BaseModel):
+    id: int
+    admin_id: Optional[int] = None
+    admin_email: Optional[str] = None
+    action: str
+    target_type: Optional[str] = None
+    target_id: Optional[int] = None
+    detail: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+        from_attributes = True

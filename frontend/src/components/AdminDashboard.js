@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { getAuthHeaders, logout, isTokenExpired } from "../services/auth";
 import { listAllAbuseReports, acceptAbuse, refuseAbuse } from "../services/Abuse";
+import { listAuditLog } from "../services/AuditLog";
 import { useNavigate } from "react-router-dom";
 import { ROUTES } from "../routes";
 import "./Dashboard.css";
@@ -27,6 +28,11 @@ function AdminDashboard() {
   const [abuseError, setAbuseError] = useState("");
   const [abuseActionId, setAbuseActionId] = useState(null);
 
+  // Audit log panel
+  const [auditLog, setAuditLog] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(true);
+  const [auditError, setAuditError] = useState("");
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -38,6 +44,7 @@ function AdminDashboard() {
 
     loadAdminData();
     loadAbuseReports();
+    loadAuditLog();
   }, []);
 
   async function loadAdminData() {
@@ -85,6 +92,21 @@ function AdminDashboard() {
       setAbuseReports([]);
     } finally {
       setAbuseLoading(false);
+    }
+  }
+
+  async function loadAuditLog() {
+    try {
+      setAuditLoading(true);
+      setAuditError("");
+
+      const data = await listAuditLog(100);
+      setAuditLog(data);
+    } catch (err) {
+      setAuditError(err.message || "Failed to load audit log");
+      setAuditLog([]);
+    } finally {
+      setAuditLoading(false);
     }
   }
 
@@ -152,6 +174,7 @@ function AdminDashboard() {
       // Banning cascades to the user's URLs on the backend, so refresh the
       // top stats, and if that user's URL list is open on the right, refresh it too.
       await loadAdminData();
+      await loadAuditLog();
 
       if (selectedUserId === userId) {
         await fetchUserUrls(userId);
@@ -199,9 +222,10 @@ function AdminDashboard() {
       }
 
       await loadAdminData();
+      await loadAuditLog();
 
       // Deleting a user cascades to their URLs, which cascades to any abuse
-      // reports filed against those URLs — so the list has to be reloaded.
+      // reports filed against those URLs, so the list has to be reloaded.
       await loadAbuseReports();
     } catch (err) {
       setError(err.message || "Failed to delete user");
@@ -231,6 +255,7 @@ function AdminDashboard() {
       );
 
       await loadAdminData();
+      await loadAuditLog();
 
       if (selectedUserId !== null) {
         await fetchUserUrls(selectedUserId);
@@ -257,6 +282,8 @@ function AdminDashboard() {
       setAbuseReports((prev) =>
         prev.filter((item) => item.abuse_id !== report.abuse_id)
       );
+
+      await loadAuditLog();
     } catch (err) {
       setAbuseError(err.message || "Failed to refuse the report");
     } finally {
@@ -284,14 +311,14 @@ function AdminDashboard() {
             className="back-to-dashboard-button"
             onClick={() => navigate(ROUTES.DASHBOARD)}
           >
-            ← Back to Dashboard
+            {"\u2190"} Back to Dashboard
           </button>
         </div>
 
         {error && <p className="error">{error}</p>}
       </div>
 
-      {/* Row 1 — platform stats on the left, abuse reports on the right */}
+      {/* Row 1 - platform stats on the left, abuse reports on the right */}
       <div className="dashboard-layout admin-row">
         <div className="card left-panel stats-panel">
           <h2 className="table-title">Overview</h2>
@@ -354,7 +381,7 @@ function AdminDashboard() {
           {abuseError && <p className="error">{abuseError}</p>}
 
           {!abuseLoading && !abuseError && abuseReports.length === 0 && (
-            <p className="no-selection-note">No open abuse reports. </p>
+            <p className="no-selection-note">No open abuse reports.</p>
           )}
 
           {abuseReports.length > 0 && (
@@ -372,22 +399,14 @@ function AdminDashboard() {
 
                 return (
                   <div key={report.abuse_id} className="url-entry">
-                    <div
-                      className="url-entry-header abuse-grid"
-                      style={{ cursor: "default" }}
-                    >
+                    <div className="url-entry-header abuse-grid" style={{ cursor: "default" }}>
                       <div className="url-entry-col">
                         <div className="url-entry-label">ID</div>#{report.abuse_id}
                       </div>
 
                       <div className="url-entry-col truncate">
                         <div className="url-entry-label">Short URL</div>
-                        <a
-                          href={report.short_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="short-link"
-                        >
+                        <a href={report.short_url} target="_blank" rel="noreferrer" className="short-link">
                           {report.short_code}
                         </a>
                         {!report.url_is_active && (
@@ -441,7 +460,7 @@ function AdminDashboard() {
         </div>
       </div>
 
-      {/* Row 2 — users on the left, the selected user's URLs on the right */}
+      {/* Row 2 - users on the left, the selected user's URLs on the right */}
       <div className="dashboard-layout admin-row">
         <div className="card left-panel">
           <h2 className="table-title">Users</h2>
@@ -463,10 +482,7 @@ function AdminDashboard() {
 
                 return (
                   <div key={user.id} className={`url-entry ${isOpen ? "open" : ""}`}>
-                    <div
-                      className="url-entry-header users-grid"
-                      onClick={() => selectUser(user.id)}
-                    >
+                    <div className="url-entry-header users-grid" onClick={() => selectUser(user.id)}>
                       <div className="url-entry-col">
                         <div className="url-entry-label">ID</div>
                         {user.id}
@@ -487,7 +503,7 @@ function AdminDashboard() {
                         {user.is_admin ? "Yes" : "No"}
                       </div>
 
-                      <div className="chevron">⌄</div>
+                      <div className="chevron">v</div>
                     </div>
 
                     <div className="url-entry-details">
@@ -509,9 +525,7 @@ function AdminDashboard() {
                           <div className="action-buttons user-admin-actions">
                             <button
                               type="button"
-                              className={`validate-button ${
-                                user.is_active ? "invalidated" : "validated"
-                              }`}
+                              className={`validate-button ${user.is_active ? "invalidated" : "validated"}`}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 toggleUserBan(user.id, user.is_active);
@@ -543,7 +557,7 @@ function AdminDashboard() {
 
         <div className="card right-panel">
           <h2 className="table-title">
-            {selectedUser ? `URLs — ${selectedUser.email}` : "User URLs"}
+            {selectedUser ? `URLs - ${selectedUser.email}` : "User URLs"}
           </h2>
 
           {!selectedUser && (
@@ -594,12 +608,7 @@ function AdminDashboard() {
 
                     <div className="url-entry-col">
                       <div className="url-entry-label">Short URL</div>
-                      <a
-                        href={url.short_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="short-link"
-                      >
+                      <a href={url.short_url} target="_blank" rel="noreferrer" className="short-link">
                         {url.short_url}
                       </a>
                     </div>
@@ -619,6 +628,70 @@ function AdminDashboard() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Row 3 - audit log of admin actions (ban/unban/delete user, abuse decisions) */}
+      <div className="card admin-audit-card">
+        <div className="abuse-panel-header">
+          <h2 className="table-title">Audit Log</h2>
+          <button
+            type="button"
+            className="abuse-refresh-button"
+            onClick={loadAuditLog}
+            disabled={auditLoading}
+          >
+            {auditLoading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
+
+        {auditError && <p className="error">{auditError}</p>}
+
+        {!auditLoading && !auditError && auditLog.length === 0 && (
+          <p className="no-selection-note">No admin actions recorded yet.</p>
+        )}
+
+        {auditLog.length > 0 && (
+          <div className="table-wrapper">
+            <div className="list-header audit-grid">
+              <div>Time</div>
+              <div>Admin</div>
+              <div>Action</div>
+              <div>Target</div>
+              <div>Detail</div>
+            </div>
+
+            {auditLog.map((entry) => (
+              <div key={entry.id} className="url-entry">
+                <div className="url-entry-header audit-grid" style={{ cursor: "default" }}>
+                  <div className="url-entry-col">
+                    <div className="url-entry-label">Time</div>
+                    {new Date(entry.created_at).toLocaleString()}
+                  </div>
+
+                  <div className="url-entry-col truncate">
+                    <div className="url-entry-label">Admin</div>
+                    {entry.admin_email || "unknown"}
+                  </div>
+
+                  <div className="url-entry-col">
+                    <div className="url-entry-label">Action</div>
+                    {entry.action}
+                  </div>
+
+                  <div className="url-entry-col">
+                    <div className="url-entry-label">Target</div>
+                    {entry.target_type ? `${entry.target_type} #${entry.target_id}` : "-"}
+                  </div>
+
+                  <div className="url-entry-col truncate">
+                    <div className="url-entry-label">Detail</div>
+                    {entry.detail || "-"}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {userToDelete && (

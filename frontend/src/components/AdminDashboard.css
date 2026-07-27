@@ -236,3 +236,12 @@
     grid-template-columns: 1fr;
   }
 }
+
+.list-header.audit-grid,
+.url-entry-header.audit-grid {
+  grid-template-columns: 160px 1.2fr 140px 140px 2fr;
+}
+
+.admin-audit-card {
+  margin-top: 24px;
+}

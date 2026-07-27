@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from audit import log_admin_action
 
 import models
 import schemas
@@ -24,7 +25,18 @@ def delete_user(
     if user_to_delete.is_admin:
         raise HTTPException(status_code=400, detail="Cannot delete another admin")
 
+    deleted_email = user_to_delete.email
     db.delete(user_to_delete)
+
+    log_admin_action(
+        db,
+        admin_id=current_admin.id,
+        action="delete_user",
+        target_type="user",
+        target_id=user_id,
+        detail=f"Deleted user '{deleted_email}' (id={user_id})",
+    )
+
     db.commit()
 
     return {"message": f"User with id {user_id} deleted successfully."}
@@ -46,6 +58,17 @@ def ban_user(
         raise HTTPException(status_code=400, detail="Cannot ban another admin")
 
     user_entry.is_active = payload.is_active
+    action = "unban_user" if payload.is_active else "ban_user"
+
+    log_admin_action(
+        db,
+        admin_id=current_admin.id,
+        action=action,
+        target_type="user",
+        target_id=user_id,
+        detail=f"{action} -> '{user_entry.email}' (id={user_id})",
+    )
+
     db.commit()
     db.refresh(user_entry)
 
@@ -202,6 +225,16 @@ def accept_abuse(
         raise HTTPException(status_code=404, detail="Associated URL not found")
 
     url.is_active = False
+
+    log_admin_action(
+        db,
+        admin_id=current_admin.id,
+        action="accept_abuse",
+        target_type="abuse_report",
+        target_id=abuse_report.id,
+        detail=f"Accepted report on '{url.short_url}', URL disabled",
+    )
+
     db.delete(abuse_report)
     db.commit()
 
@@ -225,9 +258,45 @@ def refuse_abuse(
     if not abuse_report:
         raise HTTPException(status_code=404, detail="Abuse report not found")
 
+    log_admin_action(
+        db,
+        admin_id=current_admin.id,
+        action="refuse_abuse",
+        target_type="abuse_report",
+        target_id=abuse_report.id,
+        detail=f"Refused report on '{abuse_report.url.short_url if abuse_report.url else abuse_report.url_id}'",
+    )
+
     db.delete(abuse_report)
     db.commit()
 
     return schemas.RefuseAbuseResponse(
         message="Abuse report refused successfully"
     )
+
+@router.get("/api/admin/audit-log", response_model=list[schemas.AuditLogItem])
+def list_audit_log(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
+):
+    logs = (
+        db.query(models.AdminAuditLog)
+        .order_by(models.AdminAuditLog.created_at.desc())
+        .limit(min(limit, 500))
+        .all()
+    )
+
+    return [
+        schemas.AuditLogItem(
+            id=log.id,
+            admin_id=log.admin_id,
+            admin_email=log.admin.email if log.admin else "deleted admin",
+            action=log.action,
+            target_type=log.target_type,
+            target_id=log.target_id,
+            detail=log.detail,
+            created_at=log.created_at,
+        )
+        for log in logs
+    ]
