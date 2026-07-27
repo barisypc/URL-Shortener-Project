@@ -1,6 +1,5 @@
 import { getAuthHeaders } from "./auth";
-
-const API_BASE = "http://localhost:8000";
+import { API_BASE } from "../config";
 
 // The backend keys abuse reports on the short *code* (models.URL.short_url
 // stores "abc123", not "http://localhost:8000/abc123"), so whatever the user

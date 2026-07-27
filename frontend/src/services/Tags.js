@@ -1,6 +1,5 @@
 import { getAuthHeaders } from "./auth";
-
-const API_BASE = "http://localhost:8000";
+import { API_BASE } from "../config";
 
 export async function listTags() {
   const response = await fetch(`${API_BASE}/api/my-tags`, {
