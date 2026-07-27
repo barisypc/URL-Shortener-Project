@@ -9,7 +9,7 @@ import os
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL ortam değişkeni tanımlı değil!")
+    raise RuntimeError("DATABASE_URL is not given. Please check the .env files.")
 
 engine = create_engine(DATABASE_URL) # Gives the engine the database URL to connect to the database
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) # Opens and closes the database

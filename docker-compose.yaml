@@ -9,8 +9,6 @@ services:
       POSTGRES_DB: deneme
       POSTGRES_USER: user
       POSTGRES_PASSWORD: 112131
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -53,8 +51,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     restart: unless-stopped
 
 
