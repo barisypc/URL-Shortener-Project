@@ -3,8 +3,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import redis
+import os
 
-DATABASE_URL = "postgresql://user:112131@db:5432/deneme"
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL ortam değişkeni tanımlı değil!")
+
 engine = create_engine(DATABASE_URL) # Gives the engine the database URL to connect to the database
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) # Opens and closes the database
 Base = declarative_base() #All our tables will inherit from this.

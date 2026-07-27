@@ -72,6 +72,7 @@ def list_all_url(
 @router.delete("/api/delete-url/{id}")
 @limiter.limit("10/minute")
 def delete_url(
+    request: Request,
     id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -95,6 +96,7 @@ def delete_url(
 @router.patch("/api/validate-url/{id}")
 @limiter.limit("10/minute")
 def validate_url(
+    request: Request,
     id: int,
     payload: schemas.URLValidationUpdate,
     db: Session = Depends(get_db),

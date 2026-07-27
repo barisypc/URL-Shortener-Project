@@ -24,6 +24,8 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
+    env_file:
+      - ./.env
     environment:
       DATABASE_URL: postgresql://user:112131@db:5432/deneme
     depends_on:
