@@ -1,0 +1,5 @@
+#This place is for test/dev libraries.
+-r requirements.txt
+pytest
+pytest-cov
+httpx
