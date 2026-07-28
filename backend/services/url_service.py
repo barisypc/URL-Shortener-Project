@@ -73,37 +73,33 @@ def create_short_url_logic(*, request: Request, db: Session, current_user: dict,
     if not re.match(url_pattern, str(url_data.original_url)):
         raise HTTPException(status_code=400, detail="Invalid URL format.")
 
+    existing_url = db.query(models.URL).filter(
+        models.URL.original_url == str(url_data.original_url),
+        models.URL.user_id == user_id
+    ).first()
+
+    # Validate a requested custom code up front, excluding the row we're
+    # about to update from the "is it taken" check (otherwise a URL always
+    # collides with its own current code).
+    requested_custom_code = None
     if getattr(url_data, "custom_code", None) and url_data.custom_code.strip():
-        short_code = url_data.custom_code.strip()
+        requested_custom_code = url_data.custom_code.strip()
 
         custom_code_pattern = r"^[a-zA-Z0-9_-]{3,30}$"
-        if not re.match(custom_code_pattern, short_code):
+        if not re.match(custom_code_pattern, requested_custom_code):
             raise HTTPException(
                 status_code=400,
                 detail="Custom code must be 3-30 characters and contain only letters, numbers, hyphens, or underscores."
             )
 
-        existing_custom = db.query(models.URL).filter(models.URL.short_url == short_code).first()
-        if existing_custom:
-            raise HTTPException(status_code=400, detail="This custom code is already taken.")
-    else:
-        existing_url = db.query(models.URL).filter(
-            models.URL.original_url == str(url_data.original_url),
-            models.URL.user_id == user_id
+        conflict = db.query(models.URL).filter(
+            models.URL.short_url == requested_custom_code,
+            models.URL.id != (existing_url.id if existing_url else -1)
         ).first()
+        if conflict:
+            raise HTTPException(status_code=400, detail="This custom code is already taken.")
 
-        if existing_url:
-            final_short_url = f"{base_url}/{existing_url.short_url}"
-            qr_code_image = generate_qr_base64(final_short_url) if getattr(url_data, "qr_code", False) else None
-            return {
-                "short_url": final_short_url,
-                "qr_code_image": qr_code_image
-            }
-
-        short_code = generate_short_code()
-        while db.query(models.URL).filter(models.URL.short_url == short_code).first():
-            short_code = generate_short_code()
-
+    # Shared field computation — identical for both create and update.
     expires_at = None
     if getattr(url_data, "expiration_minutes", None) is not None:
         if url_data.expiration_minutes <= 0:
@@ -120,6 +116,30 @@ def create_short_url_logic(*, request: Request, db: Session, current_user: dict,
     if getattr(url_data, "password", None) and url_data.password.strip():
         password_hash = security.hash_password(url_data.password.strip())
 
+    if existing_url:
+        if requested_custom_code:
+            existing_url.short_url = requested_custom_code
+
+        existing_url.expires_at = expires_at
+        existing_url.click_limit = click_limit
+        existing_url.password_hash = password_hash
+        existing_url.is_active = True
+
+        db.commit()
+        db.refresh(existing_url)
+
+        final_short_url = f"{base_url}/{existing_url.short_url}"
+        qr_code_image = generate_qr_base64(final_short_url) if getattr(url_data, "qr_code", False) else None
+        return {"short_url": final_short_url, "qr_code_image": qr_code_image}
+
+    # No existing row for this (user, original_url) pair — create fresh.
+    if requested_custom_code:
+        short_code = requested_custom_code
+    else:
+        short_code = generate_short_code()
+        while db.query(models.URL).filter(models.URL.short_url == short_code).first():
+            short_code = generate_short_code()
+
     new_url = models.URL(
         original_url=str(url_data.original_url),
         short_url=short_code,
@@ -129,15 +149,10 @@ def create_short_url_logic(*, request: Request, db: Session, current_user: dict,
         password_hash=password_hash,
         is_active=True
     )
-
     db.add(new_url)
     db.commit()
     db.refresh(new_url)
 
     final_short_url = f"{base_url}/{short_code}"
     qr_code_image = generate_qr_base64(final_short_url) if getattr(url_data, "qr_code", False) else None
-
-    return {
-        "short_url": final_short_url,
-        "qr_code_image": qr_code_image
-    }
+    return {"short_url": final_short_url, "qr_code_image": qr_code_image}
