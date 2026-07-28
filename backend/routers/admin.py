@@ -227,7 +227,8 @@ def accept_abuse(
         raise HTTPException(status_code=404, detail="Associated URL not found")
 
     url.is_active = False
-    url_user.is_active = False
+    if url_user.is_admin == False:
+        url_user.is_active = False
 
     log_admin_action(
         db,

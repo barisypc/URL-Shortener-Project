@@ -7,6 +7,9 @@ from database import Base, engine
 from limiter import limiter
 from routers import abuse, admin, auth, stats, tags, urls, users
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
@@ -20,6 +23,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(request, exc):
+    first = exc.errors()[0]
+    field = first["loc"][-1] if first.get("loc") else "input"
+    msg = first["msg"]
+
+    if field == "original_url" and "URL" in msg:
+        msg = "Please enter a valid URL, e.g. https://example.com"
+
+    return JSONResponse(status_code=422, content={"detail": f"{field}: {msg}"})
+
 
 app.include_router(auth.router)
 app.include_router(users.router)
