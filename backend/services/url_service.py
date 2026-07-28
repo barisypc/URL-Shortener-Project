@@ -117,13 +117,27 @@ def create_short_url_logic(*, request: Request, db: Session, current_user: dict,
         password_hash = security.hash_password(url_data.password.strip())
 
     if existing_url:
+        was_deactivated_by_click_limit = (
+            not existing_url.is_active
+            and existing_url.click_limit is not None
+            and existing_url.clicks >= existing_url.click_limit
+        )
+ 
         if requested_custom_code:
             existing_url.short_url = requested_custom_code
-
+ 
         existing_url.expires_at = expires_at
         existing_url.click_limit = click_limit
         existing_url.password_hash = password_hash
-        existing_url.is_active = True
+ 
+        # Raising or removing the limit revives a limit-exhausted link.
+        # Anything switched off for another reason — an accepted abuse report,
+        # a manual toggle — is left alone, so re-submitting a URL cannot be
+        # used to undo a moderation decision.
+        if was_deactivated_by_click_limit and (
+            click_limit is None or existing_url.clicks < click_limit
+        ):
+            existing_url.is_active = True
 
         db.commit()
         db.refresh(existing_url)
