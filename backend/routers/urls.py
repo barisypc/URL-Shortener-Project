@@ -13,7 +13,7 @@ import security
 from config import FRONTEND_URL
 from dependencies import get_current_user, get_db
 from limiter import limiter
-from services.url_service import create_short_url_logic, detect_client_platform
+from services.url_service import create_short_url_logic, detect_client_platform, record_click_and_get_target
 
 MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
 
@@ -232,28 +232,11 @@ def verify_password(
     if not security.verify_password(payload.password, url_entry.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
 
-    platform, browser = detect_client_platform(request)
-
-    url_stats = models.URLClick(
-        url_id=url_entry.id,
-        clicked_at=datetime.utcnow(),
-        accessed_platform=platform,
-        accessed_browser=browser,
-        accessed_country=None,
-    )
-
-    db.add(url_stats)
-
-    url_entry.clicks += 1
-
-    if url_entry.click_limit is not None and url_entry.clicks >= url_entry.click_limit:
-        url_entry.is_active = False
-
-    db.commit()
+    target_url = record_click_and_get_target(db, url_entry, request)
 
     return {
         "message": "Password verified successfully",
-        "original_url": url_entry.original_url
+        "original_url": target_url
     }
 
 
@@ -264,7 +247,6 @@ def verify_password(
 @limiter.limit("5/minute")
 def redirect_url(request: Request, short_code: str, db: Session = Depends(get_db)):
     url_entry = db.query(models.URL).filter(models.URL.short_url == short_code).first()
-    print(str(url_entry.click_limit))
 
     if not url_entry:
         raise HTTPException(status_code=404, detail="Short URL not found")
@@ -284,23 +266,5 @@ def redirect_url(request: Request, short_code: str, db: Session = Depends(get_db
     if url_entry.password_hash is not None:
         return RedirectResponse(url=f"{FRONTEND_URL}/protected/{short_code}")
 
-    platform, browser = detect_client_platform(request)
-
-    url_stats = models.URLClick(
-        url_id=url_entry.id,
-        clicked_at=datetime.utcnow(),
-        accessed_platform=platform,
-        accessed_browser=browser,
-        accessed_country=None,  # cannot get from user-agent
-    )
-
-    db.add(url_stats)
-
-    url_entry.clicks += 1
-
-    '''if url_entry.click_limit is not None and url_entry.clicks >= url_entry.click_limit:
-        url_entry.is_active = False'''
-
-    db.commit()
-
-    return RedirectResponse(url=url_entry.original_url)
+    target_url = record_click_and_get_target(db, url_entry, request)
+    return RedirectResponse(url=target_url)

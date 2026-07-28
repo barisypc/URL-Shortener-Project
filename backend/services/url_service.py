@@ -170,3 +170,31 @@ def create_short_url_logic(*, request: Request, db: Session, current_user: dict,
     final_short_url = f"{base_url}/{short_code}"
     qr_code_image = generate_qr_base64(final_short_url) if getattr(url_data, "qr_code", False) else None
     return {"short_url": final_short_url, "qr_code_image": qr_code_image}
+
+
+def record_click_and_get_target(db: Session, url_entry: "models.URL", request: Request) -> str:
+    """Logs a click for url_entry, increments its counter, deactivates it if
+    the click limit is now reached, and returns the original_url to redirect to.
+
+    Shared by redirect_url and verify_password in routers/urls.py so both
+    paths apply the click-limit deactivation identically.
+    """
+    platform, browser = detect_client_platform(request)
+
+    url_click = models.URLClick(
+        url_id=url_entry.id,
+        clicked_at=datetime.utcnow(),
+        accessed_platform=platform,
+        accessed_browser=browser,
+        accessed_country=None,
+    )
+    db.add(url_click)
+
+    url_entry.clicks += 1
+
+    if url_entry.click_limit is not None and url_entry.clicks >= url_entry.click_limit:
+        url_entry.is_active = False
+
+    db.commit()
+
+    return url_entry.original_url
