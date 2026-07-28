@@ -160,6 +160,7 @@ def bulk_upload(
         raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
 
     results = []
+    df = df.where(pd.notnull(df), None) #it replaces nan from excel etc. with None (Since excel/csv reads empty places as nan it creates problems when you turn it to Python.)
 
     for row in df.itertuples(index=False):
         original_url_value = getattr(row, "URL", None)
