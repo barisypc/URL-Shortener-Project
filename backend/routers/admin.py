@@ -221,10 +221,13 @@ def accept_abuse(
         raise HTTPException(status_code=404, detail="Abuse report not found")
 
     url = db.query(models.URL).filter(models.URL.id == abuse_report.url_id).first()
+    url_user = db.query(models.User).filter(models.User.id == url.user_id).first()
+    
     if not url:
         raise HTTPException(status_code=404, detail="Associated URL not found")
 
     url.is_active = False
+    url_user.is_active = False
 
     log_admin_action(
         db,
