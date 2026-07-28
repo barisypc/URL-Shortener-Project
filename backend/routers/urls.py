@@ -264,6 +264,7 @@ def verify_password(
 @limiter.limit("5/minute")
 def redirect_url(request: Request, short_code: str, db: Session = Depends(get_db)):
     url_entry = db.query(models.URL).filter(models.URL.short_url == short_code).first()
+    print(str(url_entry.click_limit))
 
     if not url_entry:
         raise HTTPException(status_code=404, detail="Short URL not found")
