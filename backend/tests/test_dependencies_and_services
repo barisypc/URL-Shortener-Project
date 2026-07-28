@@ -1,0 +1,194 @@
+# backend/tests/test_dependencies_and_services.py
+import pytest
+from starlette.requests import Request
+
+from helpers import PASSWORD, get_user, promote_to_admin, register, signup
+from services.url_service import detect_client_platform, generate_qr_base64
+
+PC_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+IPHONE_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+)
+IPAD_UA = (
+    "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+)
+
+
+def _fake_request(user_agent):
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [(b"user-agent", user_agent.encode())],
+    }
+    return Request(scope)
+
+
+# --- dependencies.py ----------------------------------------------------
+
+def test_get_db_yields_then_closes():
+    from dependencies import get_db
+
+    generator = get_db()
+    db = next(generator)
+    assert db is not None
+
+    with pytest.raises(StopIteration):
+        next(generator)
+
+
+def test_get_current_user_rejects_invalid_token(client):
+    resp = client.get(
+        "/api/me", headers={"Authorization": "Bearer not.a.real.token"}
+    )
+    assert resp.status_code == 401
+
+
+def test_get_current_admin_404_when_user_row_is_gone(client, db_session):
+    headers = register(client, "ghost", "ghost@example.com")
+    promote_to_admin(db_session, "ghost@example.com")
+
+    # token stays valid, but the account behind it disappears
+    db_session.delete(get_user(db_session, "ghost@example.com"))
+    db_session.commit()
+
+    resp = client.get("/api/admin/dashboard", headers=headers)
+    assert resp.status_code == 404
+
+
+# --- routers/users.py ---------------------------------------------------
+
+def test_get_me_returns_current_user(client):
+    headers = register(client, "me1", "me1@example.com")
+    resp = client.get("/api/me", headers=headers)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["email"] == "me1@example.com"
+    assert body["is_admin"] is False
+    assert body["is_active"] is True
+
+
+def test_get_me_404_when_user_row_is_gone(client, db_session):
+    headers = register(client, "me2", "me2@example.com")
+    db_session.delete(get_user(db_session, "me2@example.com"))
+    db_session.commit()
+
+    assert client.get("/api/me", headers=headers).status_code == 404
+
+
+def test_get_me_requires_auth(client):
+    assert client.get("/api/me").status_code in (401, 403)
+
+
+# --- routers/auth.py: signup + change-password --------------------------
+
+def test_signup_rejects_invalid_email_format(client):
+    resp = client.post(
+        "/signup/",
+        json={"username": "bad", "email": "not-an-email", "password": PASSWORD},
+    )
+    assert resp.status_code == 400
+
+
+def test_signup_rejects_duplicate_email(client):
+    signup(client, "dup1", "dup@example.com")
+    resp = client.post(
+        "/signup/",
+        json={"username": "dup2", "email": "dup@example.com", "password": PASSWORD},
+    )
+    assert resp.status_code == 400
+
+
+def test_change_password_success(client):
+    signup(client, "cp1", "cp1@example.com")
+
+    resp = client.post(
+        "/change-password/",
+        json={
+            "email": "cp1@example.com",
+            "current_password": PASSWORD,
+            "new_password": "Bb2.yeniSifre",
+        },
+    )
+    assert resp.status_code == 200
+
+    assert client.post(
+        "/login/", json={"email": "cp1@example.com", "password": PASSWORD}
+    ).status_code == 400
+    assert client.post(
+        "/login/", json={"email": "cp1@example.com", "password": "Bb2.yeniSifre"}
+    ).status_code == 200
+
+
+def test_change_password_wrong_current_password(client):
+    signup(client, "cp2", "cp2@example.com")
+    resp = client.post(
+        "/change-password/",
+        json={
+            "email": "cp2@example.com",
+            "current_password": "wrong",
+            "new_password": "Bb2.yeniSifre",
+        },
+    )
+    assert resp.status_code == 400
+
+
+def test_change_password_rejects_weak_new_password(client):
+    signup(client, "cp3", "cp3@example.com")
+    resp = client.post(
+        "/change-password/",
+        json={
+            "email": "cp3@example.com",
+            "current_password": PASSWORD,
+            "new_password": "123",
+        },
+    )
+    assert resp.status_code == 400
+
+
+def test_change_password_unknown_email(client):
+    resp = client.post(
+        "/change-password/",
+        json={
+            "email": "nobody@example.com",
+            "current_password": PASSWORD,
+            "new_password": "Bb2.yeniSifre",
+        },
+    )
+    assert resp.status_code == 400
+
+
+# --- services/url_service.py -------------------------------------------
+
+def test_detect_client_platform_pc():
+    platform, browser = detect_client_platform(_fake_request(PC_UA))
+    assert platform == "PC"
+    assert browser == "Chrome"
+
+
+def test_detect_client_platform_mobile():
+    platform, _ = detect_client_platform(_fake_request(IPHONE_UA))
+    assert platform == "Mobile"
+
+
+def test_detect_client_platform_tablet():
+    platform, _ = detect_client_platform(_fake_request(IPAD_UA))
+    assert platform == "Tablet"
+
+
+def test_detect_client_platform_unknown_agent():
+    platform, browser = detect_client_platform(_fake_request(""))
+    assert platform == "Other"
+    assert isinstance(browser, str)
+
+
+def test_generate_qr_base64_returns_data_uri():
+    data_uri = generate_qr_base64("http://testserver/abc123")
+    assert data_uri.startswith("data:image/png;base64,")
+    assert len(data_uri) > 100
