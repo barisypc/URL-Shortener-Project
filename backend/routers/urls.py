@@ -278,8 +278,6 @@ def redirect_url(request: Request, short_code: str, db: Session = Depends(get_db
         raise HTTPException(status_code=410, detail="Short URL has expired")
 
     if url_entry.click_limit is not None and url_entry.clicks >= url_entry.click_limit:
-        url_entry.is_active = False
-        db.commit()
         raise HTTPException(status_code=410, detail="Short URL click limit reached")
 
     if url_entry.password_hash is not None:
@@ -299,8 +297,8 @@ def redirect_url(request: Request, short_code: str, db: Session = Depends(get_db
 
     url_entry.clicks += 1
 
-    if url_entry.click_limit is not None and url_entry.clicks >= url_entry.click_limit:
-        url_entry.is_active = False
+    '''if url_entry.click_limit is not None and url_entry.clicks >= url_entry.click_limit:
+        url_entry.is_active = False'''
 
     db.commit()
 
